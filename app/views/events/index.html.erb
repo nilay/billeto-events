@@ -1,0 +1,58 @@
+<div class="container py-5">
+  <div class="mb-5">
+    <h1>Events</h1>
+    <p class="text-muted">Discover upcoming events from Billetto</p>
+  </div>
+
+  <div id="events-container" class="row g-4">
+    <%= render "events", events: @events %>
+  </div>
+
+  <!-- Infinite scroll trigger -->
+  <div id="pagination-trigger" style="height: 10px; margin-top: 50px;" data-page="<%= params[:page] || 1 %>"></div>
+</div>
+
+<script type="module">
+  let isLoading = false;
+
+  const loadNextPage = async () => {
+    if (isLoading) return;
+    
+    isLoading = true;
+    const trigger = document.getElementById('pagination-trigger');
+    const currentPage = parseInt(trigger.dataset.page);
+    const nextPage = currentPage + 1;
+    const url = '<%= events_path %>' + '?page=' + nextPage;
+    
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'Accept': 'text/vnd.turbo-stream.html, text/html, application/xhtml+xml'
+        }
+      });
+      
+      if (response.ok) {
+        const html = await response.text();
+        Turbo.renderStreamMessage(html);
+        trigger.dataset.page = nextPage;
+      }
+    } catch (error) {
+      console.error('Error loading next page:', error);
+    } finally {
+      isLoading = false;
+    }
+  };
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting && !isLoading) {
+        loadNextPage();
+      }
+    });
+  }, { rootMargin: '200px' });
+
+  const trigger = document.getElementById('pagination-trigger');
+  if (trigger) {
+    observer.observe(trigger);
+  }
+</script>
