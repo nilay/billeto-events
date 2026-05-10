@@ -23,7 +23,7 @@
             &nbsp;<%= link_to "👎", downvote_event_path(event, page: params[:page]), method: :patch, aria: { label: "Downvote" }, role: "button" %>
             <%= event.event_vote_counter&.downvotes_count || 0 %>
           </div>
-          <span class="badge bg-primary"><%= pluralize(event.vote_count, "vote") %></span>
+          <span class="badge bg-primary"><%= pluralize((event.event_vote_counter&.upvotes_count || 0) + (event.event_vote_counter&.downvotes_count || 0), "vote") %></span>
         </div>
       </div>
     </div>
