@@ -18,9 +18,10 @@
         <p class="card-text flex-grow-1"><%= truncate(event.description, length: 100) %></p>
         <div class="d-flex justify-content-between align-items-center mt-3">
           <div class="btn-group" role="group" aria-label="Vote controls">
-            <%= button_to "👍", upvote_event_path(event, page: params[:page]), method: :patch, class: "btn btn-sm btn-outline-success", "aria-label": "Upvote" %>
-            &nbsp;
-            <%= button_to "👎", downvote_event_path(event, page: params[:page]), method: :patch, class: "btn btn-sm btn-outline-danger", "aria-label": "Downvote" %>
+            <%= link_to "👍", upvote_event_path(event, page: params[:page]), method: :patch, aria: { label: "Upvote" }, role: "button" %>
+            &nbsp;<%= event.event_vote_counter&.upvotes_count || 0 %> &nbsp;
+            &nbsp;<%= link_to "👎", downvote_event_path(event, page: params[:page]), method: :patch, aria: { label: "Downvote" }, role: "button" %>
+            <%= event.event_vote_counter&.downvotes_count || 0 %>
           </div>
           <span class="badge bg-primary"><%= pluralize(event.vote_count, "vote") %></span>
         </div>
