@@ -28,6 +28,8 @@ gem "httparty"
 # Pagination
 gem "kaminari"
 
+gem 'clerk-sdk-ruby', require: "clerk"
+
 # Use the database-backed adapters for Rails.cache, Active Job, and Action Cable
 gem "solid_cache"
 gem "solid_queue"

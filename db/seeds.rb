@@ -7,3 +7,18 @@
 #   ["Action", "Comedy", "Drama", "Horror"].each do |genre_name|
 #     MovieGenre.find_or_create_by!(name: genre_name)
 #   end
+sdk = Clerk::SDK.new
+req = Clerk::Models::Operations::CreateUserRequest.new(
+  first_name: "John",
+  last_name: "Doe",
+  email_address: [ "john.doe@example.com" ],
+  password: "diff-but-simple"
+)
+# Create a user
+begin
+  sdk.users.create(request: req)
+rescue Clerk::Models::Errors::ClerkErrors => e
+  puts "Clerk error: #{e.message}"
+  puts "Full response: #{e.errors.inspect}"  # detailed field-level errors
+  raise
+end
