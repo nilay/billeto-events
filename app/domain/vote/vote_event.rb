@@ -1,13 +1,14 @@
 module Vote
   class VoteEvent
-    def initialize(clerk_user_id:, event_id:, vote_type:)
+    def initialize(clerk_user_id:, event_id:, vote_type:, ip:)
       @clerk_user_id = clerk_user_id
       @event_id = event_id
       @vote_type = vote_type
+      @ip = ip
     end
   
     def call
-      existing_vote = Vote.find_by(
+      existing_vote = EventVote.find_by(
         clerk_user_id: @clerk_user_id,
         event_id: @event_id
       )
@@ -20,11 +21,11 @@ module Vote
 
         vote = EventVote.upsert(
           {
-            clerk_user_id: @user.clerk_user_id,
-            event_id: @event.id,
-            value: @vote_type
+            clerk_user_id: @clerk_user_id,
+            event_id: @event_id,
+            vote_type: @vote_type
           },
-          unique_by: [:user_id, :event_id]
+          unique_by: [:clerk_user_id, :event_id]
         )
   
         # @event.increment!(:upvotes_count)
@@ -32,12 +33,12 @@ module Vote
         Rails.configuration.event_store.publish(
           EventVoted.new(
             data: {
-              clerk_user_id: @user.clerk_user_id,
-              event_id: @event.id,
+              clerk_user_id: @clerk_user_id,
+              event_id: @event_id,
               vote_type: @vote_type
             },
             metadata: {
-              ip: Current.request_ip
+              ip: @ip
             }
           )
         )
