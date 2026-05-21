@@ -12,23 +12,26 @@ class EventsController < ApplicationController
 
   def upvote
     redirect_after_vote(
-      Vote::VoteEvent.new(
-        event_id: params[:id],
-        clerk_user_id: current_clerk_user.id,
-        vote_type: EventVote.vote_types[:upvote],
-        ip: '127.0.0.1'
-      ).call
+      Rails.application.config.command_bus.dispatch(
+        UpvoteCommand.new(
+          event_id: params[:id],
+          clerk_user_id: current_clerk_user.id,
+          ip: request.remote_ip
+        )
+      )
     )
+    
   end
 
   def downvote
     redirect_after_vote(
-      Vote::VoteEvent.new(
-        event_id: params[:id],
-        clerk_user_id: current_clerk_user.id,
-        vote_type: EventVote.vote_types[:downvote],
-        ip: '127.0.0.1'
-      ).call
+      Rails.application.config.command_bus.dispatch(
+        DownvoteCommand.new(
+          event_id: params[:id],
+          clerk_user_id: current_clerk_user.id,
+          ip: request.remote_ip
+        )
+      )
     )
   end
 
