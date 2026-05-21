@@ -1,6 +1,6 @@
 # Billetto Events
 
-Rails application that lists upcoming events (sourced for Billetto-style discovery) and lets signed-in users **upvote** or **downvote** events. Authentication is handled by **Clerk**. Votes are persisted in PostgreSQL; successful vote changes are also recorded as **domain events** in **[Rails Event Store](https://railseventstore.org/)** for auditing and side effects (such as notifications).
+Rails application that lists upcoming events (sourced for Billetto-style discovery) and lets signed-in users **upvote** or **downvote** events. Authentication is handled by **Clerk**. Vote HTTP actions go through a small in-app **command bus** (commands + handlers) before domain logic runs. Votes are persisted in PostgreSQL; successful vote changes are also recorded as **domain events** in **[Rails Event Store](https://railseventstore.org/)** for auditing and side effects (such as notifications).
 
 ---
 
@@ -24,16 +24,22 @@ Rails application that lists upcoming events (sourced for Billetto-style discove
 
 1. **Browser** loads the events index (`GET /`). Optional infinite scroll loads additional pages as Turbo Streams.
 2. **Clerk** establishes session state (cookies / headers) so the app knows who is signed in.
-3. **Vote actions** (`PATCH /events/:id/upvote`, `PATCH /events/:id/downvote`) run only for signed-in users. They delegate to **`Vote::VoteEvent`**, which:
+3. **Vote actions** (`PATCH /events/:id/upvote`, `PATCH /events/:id/downvote`) run only for signed-in users. The controller builds an **`UpvoteCommand`** or **`DownvoteCommand`** and dispatches it on **`Rails.configuration.command_bus`**.
+4. **`VoteHandler`** handles both commands and delegates to **`Vote::VoteEvent`**, which:
    - Upserts a row in **`event_votes`** (one vote per user per event).
    - Rebuilds **`event_vote_counters`** from the vote table so the list UI stays consistent.
    - Publishes **`Vote::EventVoted`** to the global event store **inside the same DB transaction** as the vote write.
-4. **Subscribers** (for example **`NotifyEventVoted`**) react to `Vote::EventVoted` (today a stub for email or owner notification).
+5. **Subscribers** (for example **`NotifyEventVoted`**) react to `Vote::EventVoted` (today a stub for email or owner notification).
 
 ```mermaid
 flowchart LR
   subgraph Web
     A[EventsController]
+  end
+  subgraph Commands
+    CB[CommandBus]
+    UC[UpvoteCommand / DownvoteCommand]
+    VH[VoteHandler]
   end
   subgraph Domain
     B[Vote::VoteEvent]
@@ -47,7 +53,10 @@ flowchart LR
   subgraph Async_capable
     G[NotifyEventVoted]
   end
-  A --> B
+  A --> UC
+  UC --> CB
+  CB --> VH
+  VH --> B
   B --> D
   B --> E
   B --> C
@@ -59,7 +68,11 @@ flowchart LR
 
 | Path | Role |
 |------|------|
-| `app/controllers/events_controller.rb` | List events; member actions for up/down vote. |
+| `app/controllers/events_controller.rb` | List events; member actions build commands and dispatch on the command bus. |
+| `app/services/command_bus.rb` | Maps command classes to handlers; `dispatch` invokes the registered handler. |
+| `app/commands/upvote_command.rb`, `app/commands/downvote_command.rb` | Command objects carrying `event_id`, `clerk_user_id`, `ip`, and `vote_type`. |
+| `app/handlers/vote_handler.rb` | Handler for both vote commands; calls `Vote::VoteEvent`. |
+| `config/initializers/commandbus.rb` | Registers handlers on `Rails.configuration.command_bus` (via `to_prepare`, so reload-safe in development). |
 | `app/domain/vote/vote_event.rb` | Application service: vote write + counter sync + publish `EventVoted`. |
 | `app/domain/vote/event_voted.rb` | Event type definition (payload shape for subscribers). |
 | `app/subscribers/notify_event_voted.rb` | Handler registered on `Vote::EventVoted` (side effects). |
@@ -71,6 +84,37 @@ flowchart LR
 The **source of truth for “current vote”** in the UI is **`event_votes`** plus derived **`event_vote_counters`**. The **append-only log** is **`event_store_events`** (and stream bookkeeping in **`event_store_events_in_streams`**). Publishing happens in the same transaction as the vote so you do not record “something happened” without the vote actually being stored (or the inverse).
 
 > **Note:** `Event` also defines **`apply_vote_toggle!`**, which implements toggle-style voting and updates **`events.vote_count`**. The live HTTP path uses **`Vote::VoteEvent`** instead. Keeping both implies two mental models; converging on one approach is a sensible refactor (see [Future improvements](#future-improvements)).
+
+### Command bus
+
+Voting uses a lightweight **command bus** pattern (not the `arkency-command_bus` gem directly—a small `CommandBus` class in `app/services`).
+
+| Piece | Responsibility |
+|--------|----------------|
+| **Command** | Immutable-ish request object (`UpvoteCommand`, `DownvoteCommand`) built in the controller from route params and the current Clerk user. |
+| **Handler** | `VoteHandler#call` runs the command and returns the boolean from `Vote::VoteEvent#call`. |
+| **Bus** | `CommandBus#register` wires command class → handler; `dispatch` looks up by `command.class`. |
+
+Wiring lives in `config/initializers/commandbus.rb`:
+
+```ruby
+Rails.application.config.to_prepare do
+  command_bus = CommandBus.new
+  command_bus.register(UpvoteCommand, VoteHandler.new)
+  command_bus.register(DownvoteCommand, VoteHandler.new)
+  Rails.application.config.command_bus = command_bus
+end
+```
+
+The controller dispatches like this:
+
+```ruby
+Rails.application.config.command_bus.dispatch(
+  UpvoteCommand.new(event_id: params[:id], clerk_user_id: current_clerk_user.id, ip: request.remote_ip)
+)
+```
+
+`to_prepare` ensures handlers are re-registered after code reload in development. New write-side behaviour can add a command class, a handler, and one `register` line without growing the controller.
 
 ---
 
